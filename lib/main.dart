@@ -1,13 +1,19 @@
 // ignore_for_file: unused_import
-
 import 'dart:io';
-
+import 'dart:typed_data';
+import 'package:encrypt/encrypt_io.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:prototype/document_controller.dart';
+import 'package:prototype/RSA/decryptor.dart';
+import 'package:prototype/RSA/encryptor.dart';
+import 'package:prototype/RSA/generator.dart';
+import 'package:prototype/ethereum/document_model.dart';
+import 'ethereum/document_controller.dart';
 import 'package:ipfs_client_flutter/ipfs_client_flutter.dart';
 import 'dart:convert' as convert;
+import 'package:pointycastle/asymmetric/api.dart';
+import 'package:uri_to_file/uri_to_file.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -61,63 +67,14 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   File? imageToUpload;
 
+  File? decryptedImage;
+
   String? ipfsURL;
 
   String status = "Waiting";
 
-  Future pickImage() async {
-    try {
-      final image = await ImagePicker().pickImage(source: ImageSource.gallery);
-
-      if (image == null) return;
-
-      final imageTemp = File(image.path);
-
-      setState(() => imageToUpload = imageTemp);
-    } on PlatformException catch (e) {
-      print('Failed to pick image: $e');
-    }
-  }
-
-  Future pickImageC() async {
-    try {
-      final image = await ImagePicker().pickImage(source: ImageSource.camera);
-
-      if (image == null) return;
-
-      final imageTemp = File(image.path);
-
-      setState(() => imageToUpload = imageTemp);
-
-      print(imageTemp.path);
-    } on PlatformException catch (e) {
-      print('Failed to pick image: $e');
-    }
-  }
-
-  void sendDocument() async {
-    DocumentController documentController = DocumentController();
-    await documentController.init();
-    // upload hash to eth
-    //Make Directory
-    await CreateDirectory("/documents");
-
-    String hash = await WriteFile(
-        "/documents/${imageToUpload!.path.split('/').last}",
-        imageToUpload!.path,
-        imageToUpload!.path.split('/').last);
-
-    String? generatedHashCode = convert.jsonDecode(hash)["Hash"];
-
-    setState(() {
-      status = generatedHashCode!;
-    });
-    await documentController.addDocument(generatedHashCode!);
-    setState(() => imageToUpload = null); // resets image container
-  }
-
   Future<String> WriteFile(
-      String dirName, String filePath, String fileName) async {
+      String dirName, Uint8List encryptedImage, String fileName) async {
     Uri writeURI = Uri(
       port: 5001,
       scheme: "http",
@@ -127,15 +84,15 @@ class _MyHomePageState extends State<MyHomePage> {
         'arg': dirName,
       },
     );
-
     print("WRITE URL: $writeURI");
     var request = http.MultipartRequest('POST', writeURI);
 
-    var stream = http.ByteStream(imageToUpload!.openRead());
+    var stream =
+        http.ByteStream(Stream.fromIterable(encryptedImage.map((e) => [e])));
     stream.cast();
-    var length = await imageToUpload!.length();
+    var length = encryptedImage.length;
 
-    var multiport = http.MultipartFile('image', stream, length);
+    var multiport = http.MultipartFile('file', stream, length);
 
     request.files.add(multiport);
 
@@ -162,20 +119,99 @@ class _MyHomePageState extends State<MyHomePage> {
     print(response.reasonPhrase);
   }
 
+//#################################################################################################
+
+  Future pickImage() async {
+    try {
+      final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+
+      if (image == null) return;
+
+      final imageTemp = File(image.path);
+
+      setState(() => imageToUpload = imageTemp);
+    } on PlatformException catch (e) {
+      print('Failed to pick image: $e');
+    }
+  }
+
+  Future pickImageC() async {
+    try {
+      final image = await ImagePicker().pickImage(source: ImageSource.camera);
+
+      if (image == null) return;
+
+      final imageTemp = File(image.path);
+
+      setState(() => imageToUpload = imageTemp);
+    } on PlatformException catch (e) {
+      print('Failed to pick image: $e');
+    }
+  }
+
+  User sender = User();
+  User reciever = User();
+
+  Uint8List? signatureOfSender;
+
+  void sendDocument() async {
+    DocumentController documentController = DocumentController();
+    await documentController.init();
+    await CreateDirectory("/documents");
+
+    Uint8List encryptedImage =
+        rsaEncrypt(reciever.publicKey!, await imageToUpload!.readAsBytes());
+
+    setState(() {
+      signatureOfSender = rsaSign(sender.privateKey!, encryptedImage);
+    });
+
+    String hash = await WriteFile(
+        "/documents/${imageToUpload!.path.split('/').last.split('.').last}.txt",
+        encryptedImage,
+        imageToUpload!.path.split('/').last.split('.').last);
+
+    String? generatedHashCode = convert.jsonDecode(hash)["Hash"];
+    setState(() {
+      status = generatedHashCode!;
+    });
+    await documentController.addDocument(generatedHashCode!);
+  }
+
   void getDocument() async {
     String? ipfsHASH;
-
-    // transact eth network
-    // get hash from eth network
-    // get image from IPFS using hash
     DocumentController documentController = DocumentController();
     await documentController.init();
     final retrievedDocument = await documentController.getDocument();
-
     ipfsHASH = retrievedDocument.hash;
+    setState(() => ipfsURL = "http://10.0.2.2:8080/ipfs/$ipfsHASH");
 
-    setState(
-        () => ipfsURL = "http://10.0.2.2:8080/ipfs/$ipfsHASH"); // set image url
+    Uri ipfsURI = Uri(
+      port: 8080,
+      scheme: "http",
+      path: "ipfs/$ipfsHASH",
+      host: "10.0.2.2",
+    );
+
+    final response = await http.get(
+      ipfsURI,
+      headers: {"Content-Type": "application/json"},
+    );
+
+    print(response.reasonPhrase);
+
+    Uint8List imageInBytes = response.bodyBytes;
+    Uint8List? decryptedImageBytes =
+        rsaVerify(sender.publicKey!, imageInBytes, signatureOfSender!)
+            ? rsaDecrypt(reciever.privateKey!, imageInBytes)
+            : null;
+
+    File imageFromIPFS =
+        await imageToUpload!.writeAsBytes(decryptedImageBytes!);
+
+    setState(() {
+      decryptedImageBytes != null ? decryptedImage = imageFromIPFS : null;
+    });
   }
 
   @override
@@ -207,9 +243,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   child: imageToUpload != null
                       ? Image.file(imageToUpload!)
                       : const Text("No image selected")),
+              const Text("THIS IS FROM IPFS"),
               Expanded(
-                  child:
-                      ipfsURL != null ? Image.network(ipfsURL!) : Text(status)),
+                  child: decryptedImage != null
+                      ? Image.file(decryptedImage!)
+                      : Text(status)),
               Center(
                   child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -234,4 +272,14 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ));
   }
+}
+
+class User {
+  User() {
+    final pair = generateRSAkeyPair(exampleSecureRandom());
+    publicKey = pair.publicKey;
+    privateKey = pair.privateKey;
+  }
+  RSAPublicKey? publicKey;
+  RSAPrivateKey? privateKey;
 }

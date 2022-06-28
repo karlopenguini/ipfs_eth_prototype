@@ -41,6 +41,9 @@ dependencies:
     flutter_riverpod: ^1.0.4
     ipfs_client_flutter: ^1.0.7
     dio: ^4.0.6
+    encrypt: ^5.0.1
+    pointycastle: ^3.6.0
+    uri_to_file: ^0.2.0
 
 dev_dependencies:
     flutter_test:
