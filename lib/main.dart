@@ -167,7 +167,7 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     String hash = await WriteFile(
-        "/documents/${imageToUpload!.path.split('/').last.split('.').last}.txt",
+        "/documents/${imageToUpload!.path.split('/').last.split('.').last}",
         encryptedImage,
         imageToUpload!.path.split('/').last.split('.').last);
 
@@ -184,7 +184,8 @@ class _MyHomePageState extends State<MyHomePage> {
     await documentController.init();
     final retrievedDocument = await documentController.getDocument();
     ipfsHASH = retrievedDocument.hash;
-    setState(() => ipfsURL = "http://10.0.2.2:8080/ipfs/$ipfsHASH");
+    //setState(() => ipfsURL = "http://10.0.2.2:8080/ipfs/$ipfsHASH");
+    print("------------------->THIS IS THE HASH OF THE FILE $ipfsHASH ");
 
     Uri ipfsURI = Uri(
       port: 8080,

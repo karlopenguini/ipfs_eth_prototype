@@ -3,7 +3,7 @@ pragma solidity ^0.8.3;
 contract IPFS {
     string ipfsHash;
 
-    string[] listoFusers;
+    string[] listofUsers;
 
 
     function sendHash(string calldata x) public {

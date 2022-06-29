@@ -35,7 +35,3 @@ SecureRandom exampleSecureRandom() {
         KeyParameter(Platform.instance.platformEntropySource().getBytes(32)));
   return secureRandom;
 }
-
-final pair = generateRSAkeyPair(exampleSecureRandom());
-final public = pair.publicKey;
-final private = pair.privateKey;

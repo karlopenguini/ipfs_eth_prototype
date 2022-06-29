@@ -18,8 +18,6 @@ class DocumentController extends ChangeNotifier {
 
   Web3Client? _client;
   String? _abiCode;
-
-  Credentials? _credentials;
   EthereumAddress? _contractAddress;
   DeployedContract? _contract;
 
